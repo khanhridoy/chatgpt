@@ -1,7 +1,8 @@
-module.exports = async (req, res) => {
-  const { question, messages = '[]', model = 'chatgpt4' } = req.query;
+const messageHistoryStore = {};
 
-  // যদি কোনো প্রশ্ন (question) না দেওয়া হয়, তাহলে HTML ল্যান্ডিং পেজ দেখানো হবে
+module.exports = async (req, res) => {
+  const { question, messages = '[]', model = 'chatgpt4', autoHistory = 'false', userId = 'default' } = req.query;
+
   if (!question) {
     const html = `
       <!DOCTYPE html>
@@ -139,13 +140,16 @@ module.exports = async (req, res) => {
 
           <h2>🚀 How to Use</h2>
           <p>
-            Add a prompt with <code>?question=your_prompt</code>. For example, use <code>?question=What is the capital of France?</code> to ask a question.
+            Add a prompt with <code>?question=your_prompt</code>.
           </p>
           <p>
             Optionally, include a <code>&messages=[{"role":"user","content":"Previous message"}]</code> to maintain conversation context.
           </p>
           <p>
             Specify a model with <code>&model=chatgpt4</code> or <code>&model=gpt4</code>. Default is <code>chatgpt4</code>.
+          </p>
+          <p>
+            Enable automatic history with <code>&autoHistory=true</code> and provide a <code>&userId=your_id</code> to save conversation history.
           </p>
 
           <h2>📋 Response Details</h2>
@@ -162,11 +166,13 @@ module.exports = async (req, res) => {
           <ul>
             <li><strong>messages</strong>: An array of message objects, e.g., <code>[{"role": "user", "content": "Hello"}]</code>. Helps maintain conversation context. Default is an empty array.</li>
             <li><strong>model</strong>: The model to use (<code>chatgpt4</code> or <code>gpt4</code>). Default is <code>chatgpt4</code>.</li>
+            <li><strong>autoHistory</strong>: Set to <code>true</code> to automatically save and use conversation history. Requires <code>userId</code>.</li>
+            <li><strong>userId</strong>: A unique identifier for the user to track conversation history. Default is <code>default</code>.</li>
           </ul>
 
           <h2>🎬 Try It Out</h2>
           <p>Test the API with a sample question about Bangladesh:</p>
-          <a href="?question=Tell%20me%20about%20Bangladesh&messages=[%7B%22role%22:%22user%22,%22content%22:%22Hi,%20I%20want%20to%20learn%20about%20countries%22%7D]&model=chatgpt4" class="button">Ask a Question</a>
+          <a href="?question=Tell%20me%20about%20Bangladesh&messages=[%7B%22role%22:%22user%22,%22content%22:%22Hi,%20I%20want%20to%20learn%20about%20countries%22%7D]&model=chatgpt4&autoHistory=true&userId=testUser" class="button">Ask a Question</a>
           <p class="owner">API created by <strong>School of Mind Light</strong></p>
         </div>
 
@@ -175,6 +181,7 @@ module.exports = async (req, res) => {
             Official Channel: <a href="https://t.me/schoolofmindlight2018">School of Mind Light</a> | 
             Developer Contact: <a href="https://t.me/schoolofMindLightchatBot">Contact</a>
           </p>
+          <p>© 2025 Hridoy – All Rights Reserved</p>
         </footer>
       </body>
       </html>
@@ -182,7 +189,6 @@ module.exports = async (req, res) => {
     return res.status(200).setHeader('Content-Type', 'text/html').send(html);
   }
 
-  // API URL এবং হেডার
   const apiConfigs = {
     chatgpt4: {
       url: "https://chataibot.ru/api/promo-chat/messages",
@@ -204,7 +210,6 @@ module.exports = async (req, res) => {
     }
   };
 
-  // মডেল বৈধ কিনা চেক
   if (!apiConfigs[model]) {
     return res.status(400).json({
       api_owner: "Hridoy",
@@ -216,16 +221,13 @@ module.exports = async (req, res) => {
   const { url: apiUrl, headers } = apiConfigs[model];
 
   try {
-    // মেসেজ পার্সিং
-    console.log("[1] Preparing messages...");
-    let parsedMessages;
+    let parsedMessages = [];
     try {
       parsedMessages = JSON.parse(messages);
       if (!Array.isArray(parsedMessages)) {
         throw new Error("Messages must be an array");
       }
     } catch (e) {
-      console.error("[2] JSON parsing error:", e.message);
       return res.status(400).json({
         api_owner: "Hridoy",
         error: "Invalid Messages Format",
@@ -233,19 +235,28 @@ module.exports = async (req, res) => {
       });
     }
 
-    // API ডেটা প্রস্তুত
-    let requestBody;
-    if (model === 'chatgpt4') {
-      const messagesToSend = parsedMessages.length ? [...parsedMessages, { role: "user", content: question }] : [{ role: "user", content: question }];
-      requestBody = { messages: messagesToSend };
-      console.log("[2] Messages to send:", messagesToSend);
-    } else {
-      requestBody = { prompt: question };
-      console.log("[2] Prompt to send:", question);
+    let messagesToSend = parsedMessages;
+    if (autoHistory === 'true') {
+      if (!userId) {
+        return res.status(400).json({
+          api_owner: "Hridoy",
+          error: "Missing User ID",
+          details: "userId is required when autoHistory is true"
+        });
+      }
+      messageHistoryStore[userId] = messageHistoryStore[userId] || [];
+      messagesToSend = [...messageHistoryStore[userId]];
+      messageHistoryStore[userId].push({ role: "user", content: question });
     }
 
-    // API কল
-    console.log(`[3] Sending request to ${model} API...`);
+    let requestBody;
+    if (model === 'chatgpt4') {
+      messagesToSend = messagesToSend.length ? [...messagesToSend, { role: "user", content: question }] : [{ role: "user", content: question }];
+      requestBody = { messages: messagesToSend };
+    } else {
+      requestBody = { prompt: question };
+    }
+
     let response;
     try {
       response = await fetch(apiUrl, {
@@ -254,7 +265,6 @@ module.exports = async (req, res) => {
         body: JSON.stringify(requestBody)
       });
     } catch (e) {
-      console.error("[4] Network error:", e.message);
       return res.status(500).json({
         api_owner: "Hridoy",
         error: "Network Error",
@@ -262,7 +272,6 @@ module.exports = async (req, res) => {
       });
     }
 
-    // API রেসপন্স চেক
     if (!response.ok) {
       let errorText;
       try {
@@ -270,7 +279,6 @@ module.exports = async (req, res) => {
       } catch (e) {
         errorText = "Unable to read response text";
       }
-      console.error("[5] API error:", response.status, response.statusText, errorText);
       return res.status(500).json({
         api_owner: "Hridoy",
         error: `${model} API Error`,
@@ -278,9 +286,7 @@ module.exports = async (req, res) => {
       });
     }
 
-    // কনটেন্ট টাইপ চেক
     const contentType = response.headers.get("content-type") || "";
-    console.log("[6] Content-Type:", contentType);
     if (!contentType.includes("application/json")) {
       let text;
       try {
@@ -288,7 +294,6 @@ module.exports = async (req, res) => {
       } catch (e) {
         text = "Unable to read response text";
       }
-      console.error("[7] Invalid content type:", contentType, text);
       return res.status(500).json({
         api_owner: "Hridoy",
         error: "Invalid API Response",
@@ -296,25 +301,20 @@ module.exports = async (req, res) => {
       });
     }
 
-    // রেসপন্স পার্সিং
     let data;
     try {
       data = await response.json();
     } catch (e) {
-      console.error("[8] JSON response parsing error:", e.message);
       return res.status(500).json({
         api_owner: "Hridoy",
         error: "Response Parsing Error",
         details: `Failed to parse API response: ${e.message}`
       });
     }
-    console.log("[9] Response received:", data);
 
-    // উত্তর চেক
     let result;
     if (model === 'chatgpt4') {
       if (!data.answer) {
-        console.warn("[10] No 'answer' field in response:", data);
         return res.status(200).json({
           api_owner: "Hridoy",
           result: "No response content received"
@@ -323,7 +323,6 @@ module.exports = async (req, res) => {
       result = data.answer;
     } else {
       if (!data.message) {
-        console.warn("[10] No 'message' field in response:", data);
         return res.status(200).json({
           api_owner: "Hridoy",
           result: "No response content received"
@@ -332,13 +331,15 @@ module.exports = async (req, res) => {
       result = data.message;
     }
 
+    if (autoHistory === 'true' && userId) {
+      messageHistoryStore[userId].push({ role: "assistant", content: result });
+    }
+
     return res.status(200).json({
       api_owner: "Hridoy",
       result
     });
   } catch (error) {
-    // অপ্রত্যাশিত ত্রুটি
-    console.error("[11] Unexpected error:", error.message, error.stack);
     return res.status(500).json({
       api_owner: "Hridoy",
       error: "Internal Server Error",
