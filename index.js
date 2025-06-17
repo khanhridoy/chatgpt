@@ -1,7 +1,8 @@
 const messageHistoryStore = {};
+const generateUserId = () => Math.random().toString(36).substr(2, 9);
 
 module.exports = async (req, res) => {
-  const { question, messages = '[]', model = 'chatgpt4', autoHistory = 'false', userId = 'default' } = req.query;
+  const { question, model = 'chatgpt4', saveHistory = 'false' } = req.query;
 
   if (!question) {
     const html = `
@@ -143,13 +144,10 @@ module.exports = async (req, res) => {
             Add a prompt with <code>?question=your_prompt</code>.
           </p>
           <p>
-            Optionally, include a <code>&messages=[{"role":"user","content":"Previous message"}]</code> to maintain conversation context.
-          </p>
-          <p>
             Specify a model with <code>&model=chatgpt4</code> or <code>&model=gpt4</code>. Default is <code>chatgpt4</code>.
           </p>
           <p>
-            Enable automatic history with <code>&autoHistory=true</code> and provide a <code>&userId=your_id</code> to save conversation history.
+            Enable history saving with <code>&saveHistory=true</code>.
           </p>
 
           <h2>📋 Response Details</h2>
@@ -164,15 +162,13 @@ module.exports = async (req, res) => {
             The following parameters allow you to customize your request:
           </p>
           <ul>
-            <li><strong>messages</strong>: An array of message objects, e.g., <code>[{"role": "user", "content": "Hello"}]</code>. Helps maintain conversation context. Default is an empty array.</li>
             <li><strong>model</strong>: The model to use (<code>chatgpt4</code> or <code>gpt4</code>). Default is <code>chatgpt4</code>.</li>
-            <li><strong>autoHistory</strong>: Set to <code>true</code> to automatically save and use conversation history. Requires <code>userId</code>.</li>
-            <li><strong>userId</strong>: A unique identifier for the user to track conversation history. Default is <code>default</code>.</li>
+            <li><strong>saveHistory</strong>: Set to <code>true</code> to automatically save and use conversation history. Default is <code>false</code>.</li>
           </ul>
 
           <h2>🎬 Try It Out</h2>
           <p>Test the API with a sample question about Bangladesh:</p>
-          <a href="?question=Tell%20me%20about%20Bangladesh&messages=[%7B%22role%22:%22user%22,%22content%22:%22Hi,%20I%20want%20to%20learn%20about%20countries%22%7D]&model=chatgpt4&autoHistory=true&userId=testUser" class="button">Ask a Question</a>
+          <a href="?question=Tell%20me%20about%20Bangladesh&model=chatgpt4&saveHistory=true" class="button">Ask a Question</a>
           <p class="owner">API created by <strong>School of Mind Light</strong></p>
         </div>
 
@@ -221,32 +217,16 @@ module.exports = async (req, res) => {
   const { url: apiUrl, headers } = apiConfigs[model];
 
   try {
-    let parsedMessages = [];
-    try {
-      parsedMessages = JSON.parse(messages);
-      if (!Array.isArray(parsedMessages)) {
-        throw new Error("Messages must be an array");
-      }
-    } catch (e) {
-      return res.status(400).json({
-        api_owner: "Hridoy",
-        error: "Invalid Messages Format",
-        details: `Error: ${e.message}. Expected a valid JSON array, e.g., [{"role": "user", "content": "Hello"}]`
-      });
-    }
-
-    let messagesToSend = parsedMessages;
-    if (autoHistory === 'true') {
-      if (!userId) {
-        return res.status(400).json({
-          api_owner: "Hridoy",
-          error: "Missing User ID",
-          details: "userId is required when autoHistory is true"
-        });
-      }
+    let messagesToSend = [];
+    let userId = 'default';
+    if (saveHistory === 'true') {
+      userId = generateUserId();
       messageHistoryStore[userId] = messageHistoryStore[userId] || [];
       messagesToSend = [...messageHistoryStore[userId]];
       messageHistoryStore[userId].push({ role: "user", content: question });
+      if (messageHistoryStore[userId].length > 10) {
+        messageHistoryStore[userId] = messageHistoryStore[userId].slice(-10);
+      }
     }
 
     let requestBody;
@@ -331,7 +311,7 @@ module.exports = async (req, res) => {
       result = data.message;
     }
 
-    if (autoHistory === 'true' && userId) {
+    if (saveHistory === 'true') {
       messageHistoryStore[userId].push({ role: "assistant", content: result });
     }
 
