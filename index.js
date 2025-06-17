@@ -1,5 +1,5 @@
 module.exports = async (req, res) => {
-  const { question, messages = '[]' } = req.query;
+  const { question, messages = '[]', model = 'chatgpt4' } = req.query;
 
   // যদি কোনো প্রশ্ন (question) না দেওয়া হয়, তাহলে HTML ল্যান্ডিং পেজ দেখানো হবে
   if (!question) {
@@ -144,26 +144,29 @@ module.exports = async (req, res) => {
           <p>
             Optionally, include a <code>&messages=[{"role":"user","content":"Previous message"}]</code> to maintain conversation context.
           </p>
+          <p>
+            Specify a model with <code>&model=chatgpt4</code> or <code>&model=gpt4</code>. Default is <code>chatgpt4</code>.
+          </p>
 
           <h2>📋 Response Details</h2>
           <ul>
+            <li><strong>api_owner</strong>: The owner of the API (Hridoy)</li>
             <li><strong>result</strong>: The chatbot's response to your prompt</li>
             <li><strong>error</strong>: Error message (if any issues occur)</li>
           </ul>
 
-          <h2>🔍 Additional Parameter</h2>
+          <h2>🔍 Additional Parameters</h2>
           <p>
-            The <code>messages</code> parameter allows you to maintain a conversation history:
+            The following parameters allow you to customize your request:
           </p>
           <ul>
-            <li>Pass an array of message objects, e.g., <code>[{"role": "user", "content": "Hello"}]</code>.</li>
-            <li>Helps the chatbot understand the context of the current prompt.</li>
-            <li>Default is an empty array if not provided.</li>
+            <li><strong>messages</strong>: An array of message objects, e.g., <code>[{"role": "user", "content": "Hello"}]</code>. Helps maintain conversation context. Default is an empty array.</li>
+            <li><strong>model</strong>: The model to use (<code>chatgpt4</code> or <code>gpt4</code>). Default is <code>chatgpt4</code>.</li>
           </ul>
 
           <h2>🎬 Try It Out</h2>
-          <p>Test the API with a sample question:</p>
-          <a href="?question=What is the capital of France?" class="button">Ask a Question</a>
+          <p>Test the API with a sample question about Bangladesh:</p>
+          <a href="?question=Tell%20me%20about%20Bangladesh&messages=[%7B%22role%22:%22user%22,%22content%22:%22Hi,%20I%20want%20to%20learn%20about%20countries%22%7D]&model=chatgpt4" class="button">Ask a Question</a>
           <p class="owner">API created by <strong>School of Mind Light</strong></p>
         </div>
 
@@ -179,15 +182,38 @@ module.exports = async (req, res) => {
     return res.status(200).setHeader('Content-Type', 'text/html').send(html);
   }
 
-  // Chatgpt4 API-এর জন্য URL এবং হেডার
-  const apiUrl = "https://chataibot.ru/api/promo-chat/messages";
-  const headers = {
-    "Content-Type": "application/json",
-    "Accept-Language": "en-US,en;q=0.9",
-    "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Mobile Safari/537.36",
-    "Referer": "https://chataibot.ru/app/free-chat",
-    "Accept": "application/json"
+  // API URL এবং হেডার
+  const apiConfigs = {
+    chatgpt4: {
+      url: "https://chataibot.ru/api/promo-chat/messages",
+      headers: {
+        "Content-Type": "application/json",
+        "Accept-Language": "en-US,en;q=0.9",
+        "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Mobile Safari/537.36",
+        "Referer": "https://chataibot.ru/app/free-chat",
+        "Accept": "application/json"
+      }
+    },
+    gpt4: {
+      url: "https://stablediffusion.fr/gpt4/predict2",
+      headers: {
+        "Content-Type": "application/json",
+        "Origin": "https://stablediffusion.fr",
+        "User-Agent": "Mozilla/5.0"
+      }
+    }
   };
+
+  // মডেল বৈধ কিনা চেক
+  if (!apiConfigs[model]) {
+    return res.status(400).json({
+      api_owner: "Hridoy",
+      error: "Invalid Model",
+      details: `Model must be one of: chatgpt4, gpt4. Received: ${model}`
+    });
+  }
+
+  const { url: apiUrl, headers } = apiConfigs[model];
 
   try {
     // মেসেজ পার্সিং
@@ -206,26 +232,33 @@ module.exports = async (req, res) => {
         details: `Error: ${e.message}. Expected a valid JSON array, e.g., [{"role": "user", "content": "Hello"}]`
       });
     }
-    const messagesToSend = parsedMessages.length ? [...parsedMessages, { role: "user", content: question }] : [{ role: "user", content: question }];
-    console.log("[2] Messages to send:", messagesToSend);
 
-    // Chatgpt4 API কল
-    console.log("[3] Sending request to Chatgpt4 API...");
+    // API ডেটা প্রস্তুত
+    let requestBody;
+    if (model === 'chatgpt4') {
+      const messagesToSend = parsedMessages.length ? [...parsedMessages, { role: "user", content: question }] : [{ role: "user", content: question }];
+      requestBody = { messages: messagesToSend };
+      console.log("[2] Messages to send:", messagesToSend);
+    } else {
+      requestBody = { prompt: question };
+      console.log("[2] Prompt to send:", question);
+    }
+
+    // API কল
+    console.log(`[3] Sending request to ${model} API...`);
     let response;
     try {
       response = await fetch(apiUrl, {
         method: "POST",
         headers,
-        body: JSON.stringify({
-          messages: messagesToSend
-        })
+        body: JSON.stringify(requestBody)
       });
     } catch (e) {
       console.error("[4] Network error:", e.message);
       return res.status(500).json({
         api_owner: "Hridoy",
         error: "Network Error",
-        details: `Failed to connect to Chatgpt4 API: ${e.message}`
+        details: `Failed to connect to ${model} API: ${e.message}`
       });
     }
 
@@ -240,7 +273,7 @@ module.exports = async (req, res) => {
       console.error("[5] API error:", response.status, response.statusText, errorText);
       return res.status(500).json({
         api_owner: "Hridoy",
-        error: "Chatgpt4 API Error",
+        error: `${model} API Error`,
         details: `Status: ${response.status} ${response.statusText}. Response: ${errorText.slice(0, 200)}...`
       });
     }
@@ -278,17 +311,30 @@ module.exports = async (req, res) => {
     console.log("[9] Response received:", data);
 
     // উত্তর চেক
-    if (!data.answer) {
-      console.warn("[10] No 'answer' field in response:", data);
-      return res.status(200).json({
-        api_owner: "Hridoy",
-        result: "No response content received"
-      });
+    let result;
+    if (model === 'chatgpt4') {
+      if (!data.answer) {
+        console.warn("[10] No 'answer' field in response:", data);
+        return res.status(200).json({
+          api_owner: "Hridoy",
+          result: "No response content received"
+        });
+      }
+      result = data.answer;
+    } else {
+      if (!data.message) {
+        console.warn("[10] No 'message' field in response:", data);
+        return res.status(200).json({
+          api_owner: "Hridoy",
+          result: "No response content received"
+        });
+      }
+      result = data.message;
     }
 
     return res.status(200).json({
       api_owner: "Hridoy",
-      result: data.answer
+      result
     });
   } catch (error) {
     // অপ্রত্যাশিত ত্রুটি
